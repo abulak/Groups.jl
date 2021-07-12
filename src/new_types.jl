@@ -1,3 +1,11 @@
+using GroupsCore
+# using Groups
+# import Groups.AbstractFPGroup
+import KnuthBendix
+import KnuthBendix: AbstractWord, Alphabet, Word, RewritingSystem
+import KnuthBendix: alphabet
+using Random
+
 ## "Abstract" definitions
 
 """
@@ -26,6 +34,14 @@ rewriting(G::AbstractFPGroup) = alphabet(G)
 Base.@propagate_inbounds function (G::AbstractFPGroup)(word::AbstractVector{<:Integer})
     @boundscheck @assert all(l -> 1 <= l <= length(KnuthBendix.alphabet(G)), word)
     return FPGroupElement(word_type(G)(word), G)
+end
+
+function Base.show(io::IO, G::AbstractFPGroup)
+    print(io, "⟨")
+    join(io, gens(G), ", ")
+    print(io, " | ")
+    join(io, relations(G), ", ")
+    print(io, "⟩")
 end
 
 ## Group Interface
@@ -57,36 +73,34 @@ Base.isfinite(::AbstractFPGroup) = (@warn "using generic isfinite(::AbstractFPGr
 
 ## FPGroupElement
 
-abstract type AbstractFPGroupElement{Gr} <: GroupElement end
-
-mutable struct FPGroupElement{Gr<:AbstractFPGroup,W<:AbstractWord} <: AbstractFPGroupElement{Gr}
+mutable struct FPGroupElement{G<:AbstractFPGroup,W<:AbstractWord} <: GroupElement
     word::W
     savedhash::UInt
-    parent::Gr
+    parent::G
 
-    FPGroupElement(word::W, G::AbstractFPGroup, hash::UInt=UInt(0)) where {W<:AbstractWord} =
+    FPGroupElement(word::W, G::AbstractFPGroup) where {W<:AbstractWord} =
+        new{typeof(G),W}(word, UInt(0), G)
+
+    FPGroupElement(word::W, hash::UInt, G::AbstractFPGroup) where {W<:AbstractWord} =
         new{typeof(G),W}(word, hash, G)
-
-    FPGroupElement{Gr, W}(word::AbstractWord, G::Gr) where {Gr, W} =
-        new{Gr, W}(word, UInt(0), G)
 end
 
-word(f::AbstractFPGroupElement) = f.word
+word(f::FPGroupElement) = f.word
 
 #convenience
-KnuthBendix.alphabet(g::AbstractFPGroupElement) = alphabet(parent(g))
+KnuthBendix.alphabet(g::FPGroupElement) = alphabet(parent(g))
 
-function Base.show(io::IO, f::AbstractFPGroupElement)
+function Base.show(io::IO, f::FPGroupElement)
     f = normalform!(f)
     KnuthBendix.print_repr(io, word(f), alphabet(f))
 end
 
 ## GroupElement Interface for FPGroupElement
 
-Base.parent(f::AbstractFPGroupElement) = f.parent
-GroupsCore.parent_type(::Type{<:AbstractFPGroupElement{G}}) where {G} = G
+Base.parent(f::FPGroupElement) = f.parent
+GroupsCore.parent_type(::Type{<:FPGroupElement{G}}) where {G} = G
 
-function Base.:(==)(g::AbstractFPGroupElement, h::AbstractFPGroupElement)
+function Base.:(==)(g::FPGroupElement, h::FPGroupElement)
     @boundscheck @assert parent(g) === parent(h)
     normalform!(g)
     normalform!(h)
@@ -95,23 +109,20 @@ function Base.:(==)(g::AbstractFPGroupElement, h::AbstractFPGroupElement)
 end
 
 function Base.deepcopy_internal(g::FPGroupElement, stackdict::IdDict)
-    return FPGroupElement(copy(word(g)), parent(g), g.savedhash)
+    return FPGroupElement(copy(word(g)), g.savedhash, parent(g))
 end
 
-function Base.inv(g::GEl) where GEl <: AbstractFPGroupElement
-    G = parent(g)
-    return GEl(inv(alphabet(G), word(g)), G)
-end
+Base.inv(g::FPGroupElement) = (G = parent(g); FPGroupElement(inv(alphabet(G), word(g)), G))
 
-function Base.:(*)(g::GEl, h::GEl) where GEl<:AbstractFPGroupElement
+function Base.:(*)(g::FPGroupElement, h::FPGroupElement)
     @boundscheck @assert parent(g) === parent(h)
-    return GEl(word(g) * word(h), parent(g))
+    return FPGroupElement(word(g) * word(h), parent(g))
 end
 
-GroupsCore.isfiniteorder(g::AbstractFPGroupElement) = isone(g) ? true : (@warn "using generic isfiniteorder(::AbstractFPGroupElement): the returned `false` might be wrong"; false)
+GroupsCore.isfiniteorder(g::FPGroupElement) = isone(g) ? true : (@warn "using generic isfiniteorder(::FPGroupElement): the returned `false` might be wrong"; false)
 
 # additional methods:
-Base.isone(g::AbstractFPGroupElement) = (normalform!(g); isempty(word(g)))
+Base.isone(g::FPGroupElement) = (normalform!(g); isempty(word(g)))
 
 ## Free Groups
 
@@ -128,16 +139,7 @@ end
 
 function FreeGroup(A::Alphabet)
     @boundscheck @assert all(KnuthBendix.hasinverse(l, A) for l in KnuthBendix.letters(A))
-    ltrs = KnuthBendix.letters(A)
-    gens = Vector{eltype(ltrs)}()
-    invs = Vector{eltype(ltrs)}()
-    for l in ltrs
-        l ∈ invs && continue
-        push!(gens, l)
-        push!(invs, inv(A, l))
-    end
-
-    return FreeGroup(gens, A)
+    return FreeGroup(KnuthBendix.letters(A), A)
 end
 
 function FreeGroup(n::Integer)
@@ -146,7 +148,7 @@ function FreeGroup(n::Integer)
     sizehint!(symbols, 2n)
     sizehint!(inverses, 2n)
     for i in 1:n
-        push!(symbols, Symbol(:f, i), Symbol(:F, i))
+        push!(symbols, Symbol(:f, subscriptify(i)), Symbol(:F, subscriptify(i)))
         push!(inverses, 2i, 2i-1)
     end
     return FreeGroup(symbols[1:2:2n], Alphabet(symbols, inverses))
@@ -162,7 +164,7 @@ relations(F::FreeGroup) = Pair{eltype(F)}[]
 # these are mathematically correct
 Base.isfinite(::FreeGroup) = false
 
-GroupsCore.isfiniteorder(g::AbstractFPGroupElement{<:FreeGroup}) = isone(g) ? true : false
+GroupsCore.isfiniteorder(g::FPGroupElement{<:FreeGroup}) = isone(g) ? true : false
 
 ## FP Groups
 
@@ -189,19 +191,11 @@ function FPGroup(
         @assert parent(lhs) === parent(rhs) === G
     end
     word_rels = [word(lhs) => word(rhs) for (lhs, rhs) in [relations(G); rels]]
-    rws = KnuthBendix.RewritingSystem(word_rels, O)
+    rws = RewritingSystem(word_rels, O)
 
     KnuthBendix.knuthbendix!(rws; kwargs...)
 
     return FPGroup(G.gens, rels, rws)
-end
-
-function Base.show(io::IO, G::FPGroup)
-    print(io, "⟨")
-    join(io, gens(G), ", ")
-    print(io, " | ")
-    join(io, relations(G), ", ")
-    print(io, "⟩")
 end
 
 ## GSymbol aka letter of alphabet
@@ -209,7 +203,4 @@ end
 abstract type GSymbol end
 Base.literal_pow(::typeof(^), t::GSymbol, ::Val{-1}) = inv(t)
 
-function subscriptify(n::Integer)
-    subscript_0 = Int(0x2080) # Char(0x2080) -> subscript 0
-    return join([Char(subscript_0 + i) for i in reverse(digits(n))], "")
-end
+subscriptify(i::Integer) = join('₀'+d for d in reverse(digits(i)))

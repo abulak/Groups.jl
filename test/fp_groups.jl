@@ -46,7 +46,10 @@
 
     @test h isa FPGroupElement
     @test_throws AssertionError h == g
-    @test_throws AssertionError h*g
+    @test_throws MethodError h*g
+
+    H′ = FPGroup(G, [aG^2=>cG, bG*cG=>aG], maxrules=200)
+    @test_throws AssertionError one(H) == one(H′)
 
     Groups.normalform!(h)
     @test h == H([5])

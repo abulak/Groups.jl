@@ -26,6 +26,7 @@ include(joinpath(pathof(GroupsCore), "..", "..", "test", "conformance_test.jl"))
     include("fp_groups.jl")
 
     include("AutFn.jl")
+    include("AutSigma_41.jl")
 
     # if !haskey(ENV, "CI")
     #    include("benchmarks.jl")

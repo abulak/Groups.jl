@@ -144,6 +144,36 @@
         @test all(g->isone(g*inv(g)), B_2)
     end
 
+    @testset "Forward evaluate" begin
+        N = 3
+        F = FreeGroup(N)
+        G = SpecialAutomorphismGroup(F)
+
+        a = gens(G, 1) # ϱ₁₂
+
+        f = gens(F)
+
+        @test a(f[1]) == f[1]*f[2]
+        @test all(a(f[i]) == f[i] for i in 2:length(f))
+
+        S = let s = gens(G)
+            [s; inv.(s)]
+        end
+
+        @test all(
+            map(first(Groups.wlmetric_ball(S, radius=2))) do g
+                lm = Groups.LettersMap(g)
+                img = evaluate(g)
+
+                fimg = [F(lm[first(word(s))]) for s in gens(F)]
+
+                succeeded = all(img .== fimg)
+                @assert succeeded "forward evaluation of $(word(g)) failed: \n img=$img\n fimg=$(tuple(fimg...))"
+                succeeded
+            end
+        )
+    end
+
     @testset "GroupsCore conformance" begin
         test_Group_interface(A)
         g = A(rand(1:length(alphabet(A)), 10))
@@ -153,37 +183,3 @@
     end
 
 end
-
-# using Random
-# using GroupsCore
-#
-# A = New.SpecialAutomorphismGroup(FreeGroup(4), maxrules=2000, ordering=KnuthBendix.RecursivePathOrder)
-#
-# # for seed in 1:1000
-# let seed = 68
-#     N = 14
-#     Random.seed!(seed)
-#     g = A(rand(1:length(KnuthBendix.alphabet(A)), N))
-#     h = A(rand(1:length(KnuthBendix.alphabet(A)), N))
-#     @info "seed=$seed" g h
-#     @time isone(g*inv(g))
-#     @time isone(inv(g)*g)
-#     @info "" length(word(New.normalform!(g*inv(g)))) length(word(New.normalform!(inv(g)*g)))
-#     a = commutator(g, h, g)
-#     b = conj(inv(g), h) * conj(conj(g, h), g)
-#
-#     @info length(word(a))
-#     @info length(word(b))
-#
-#     w = a*inv(b)
-#     @info length(word(w))
-#     New.normalform!(w)
-#     @info length(word(w))
-#
-#
-#     #
-#     # @time ima = evaluate(a)
-#     # @time imb = evaluate(b)
-#     # @info "" a b ima imb
-#     # @time a == b
-# end

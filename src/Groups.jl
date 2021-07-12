@@ -18,6 +18,7 @@ include("normalform.jl")
 include("autgroups.jl")
 
 include("groups/sautFn.jl")
+include("groups/mcg.jl")
 
 include("wl_ball.jl")
 end # of module Groups
